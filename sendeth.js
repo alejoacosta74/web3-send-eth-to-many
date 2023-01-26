@@ -24,6 +24,7 @@ const Tx = require('ethereumjs-tx').Transaction;
 const dotenv = require('dotenv');
 const fs = require('fs');
 var readline = require('readline');
+const axios = require('axios')
 dotenv.config();
 
 const web3 = new(Web3)
@@ -35,7 +36,13 @@ const privateKey = Buffer.from(
 	'hex',
       )
 
-let sender , amount, addresses, gasPrice, account, chainId;
+let sender , // address of sender
+	amount, // eth amount to send
+	addresses, // list of destination addressess
+	gasPrice, // gas price to use
+	account, // account object derived from private key
+	chainId, // chain id of the blockchain network
+	ethPrice; // ethereum price in USD 
 
 // set http provider from env variable
 setProvider = () => {
@@ -120,11 +127,36 @@ const sendEth = async (address) => {
 
 	// check updated balance for destination address
 	const newBalance = await web3.eth.getBalance(address);
-	console.log(`Balance for ${address} before: ${web3.utils.fromWei(curBalance, 'ether')} ETH`);
-	console.log(`Balance for ${address} after: ${web3.utils.fromWei(newBalance, 'ether')} ETH`);
+	console.log(`Balance for address: ${address}`)
+	console.log(`\tbefore: ${web3.utils.fromWei(curBalance, 'ether')} ETH`);
+	console.log(`\tafter: ${web3.utils.fromWei(newBalance, 'ether')} ETH\n`);
 
-	// print receipt
-	console.log(receipt);
+	// save receipt to file
+	saveReceipt(address, receipt);
+
+}
+
+// call external API and get eth price in USD
+const getEthUSDPrice = async () => {
+	try {
+		response = await axios.get('https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD')
+		return response.data.USD
+	} catch (e) {
+		console.log("Error fetching eth price: ", e);
+		process.exit(1)
+	}
+}
+
+
+// save receipt to file 
+saveReceipt = (address, receipt) => {
+	const data = JSON.stringify(receipt, null, 2);
+	// create directory if it doesn't exist
+	if (!fs.existsSync('receipts')) {
+		fs.mkdirSync('receipts');
+	}
+	// save receipt to file matching address
+	fs.writeFileSync(`receipts/${address}.json`, data);
 }
 
 const main = async () => {
@@ -158,9 +190,12 @@ const main = async () => {
 	// estimate gas cost for sending ether to 1 address
 	console.log('Estimating gas cost...');
 	let gasCostEstimate = await estimateGas(addresses[0]);
+	let gasCostEth = web3.utils.fromWei(gasCostEstimate, 'ether')
+	ethPrice = await getEthUSDPrice()
+	let gasCostUSD = gasCostEth * ethPrice
 
 	// prompt user for confirmation and send ether
-	console.log(`You are about to send ${amount} ETH to ${addresses.length} addresses. This will cost ${web3.utils.fromWei(gasCostEstimate, 'ether')} ETH per address. Do you want to continue? (y/n)`);
+	console.log(`You are about to send ${amount} ETH to ${addresses.length} addresses. This will cost ${gasCostEth} ETH (${gasCostUSD} USD) per address. Do you want to continue? (y/n)`);
 	const rl = readline.createInterface({
 
 		input: process.stdin,
